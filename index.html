@@ -100,16 +100,21 @@
           // 重新处理数据结构 - 收集所有词条
           allPainPoints = [];
           if (data) {
-            Object.values(data).forEach(item => {
+            Object.keys(data).forEach(key => {
+              const item = data[key];
+              console.log("处理项目:", item);
+              
               if (Array.isArray(item)) {
                 // 如果是数组，添加所有元素
-                allPainPoints.push(...item);
+                allPainPoints = allPainPoints.concat(item);
               } else if (typeof item === 'string') {
                 // 如果是字符串，直接添加
                 allPainPoints.push(item);
-              } else if (item && item.points) {
-                // 如果是对象且包含points字段
-                allPainPoints.push(...item.points);
+              } else if (item && typeof item === 'object') {
+                // 如果是对象，尝试提取数组
+                if (Array.isArray(item.points)) {
+                  allPainPoints = allPainPoints.concat(item.points);
+                }
               }
             });
           }
@@ -141,13 +146,16 @@
             const data = snapshot.val();
             allPainPoints = [];
             if (data) {
-              Object.values(data).forEach(item => {
+              Object.keys(data).forEach(key => {
+                const item = data[key];
                 if (Array.isArray(item)) {
-                  allPainPoints.push(...item);
+                  allPainPoints = allPainPoints.concat(item);
                 } else if (typeof item === 'string') {
                   allPainPoints.push(item);
-                } else if (item && item.points) {
-                  allPainPoints.push(...item.points);
+                } else if (item && typeof item === 'object') {
+                  if (Array.isArray(item.points)) {
+                    allPainPoints = allPainPoints.concat(item.points);
+                  }
                 }
               });
             }
@@ -186,21 +194,29 @@
           // 生成词云
           WordCloud(wordcloudElement, {
             list: wordList,
-            gridSize: Math.round(16 * wordcloudElement.offsetWidth / 1024),
+            gridSize: 10,
             weightFactor: function (size) {
               // 根据频率调整大小 - 频率高的词更大
-              return size * 30;
+              return Math.pow(size, 1.5) * 30;
             },
             fontFamily: "Microsoft YaHei, sans-serif",
-            color: () => ["#FF6B6B", "#4ECDC4", "#FFD166", "#6A11CB", "#2575FC", "#FF9E7D", "#32a852", "#ff4081"][Math.floor(Math.random() * 8)],
-            rotateRatio: 0.3, // 减少旋转比例，提高可读性
+            color: function (word, weight) {
+              // 根据权重选择颜色
+              const colors = [
+                "#FF6B6B", "#4ECDC4", "#FFD166", "#6A11CB", 
+                "#2575FC", "#FF9E7D", "#32a852", "#ff4081",
+                "#8e44ad", "#e67e22", "#16a085", "#c0392b"
+              ];
+              return colors[Math.floor(Math.random() * colors.length)];
+            },
+            rotateRatio: 0.3,
             rotationSteps: 2,
             backgroundColor: "rgba(255,255,255,0.9)",
-            minSize: 10, // 最小字体大小
+            minSize: 8,
             drawOutOfBound: false,
             shrinkToFit: true,
-            hover: function(item, dimension, event) {
-              if (!item) return;
+            hover: window.drawWordCloudHint,
+            click: function(item) {
               console.log(`词: ${item[0]}, 频率: ${item[1]}`);
             }
           });
@@ -345,7 +361,7 @@
 
     #wordcloud {
       width: 100%;
-      height: 500px; /* 增加高度以显示更多词 */
+      height: 500px;
       background: rgba(255, 255, 255, 0.9);
       border-radius: 10px;
       display: flex;
