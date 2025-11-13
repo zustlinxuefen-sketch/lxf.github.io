@@ -1,19 +1,17 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PPT痛点收集系统 - 实时版</title>
   <script src="https://cdn.jsdelivr.net/npm/wordcloud@1.2.2/src/wordcloud2.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  
   <!-- Firebase SDK -->
   <script type="module">
-    // 导入 Firebase SDK
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
-    import { getDatabase, ref, push, onValue, set, remove } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
-    import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-analytics.js";
+    import { getDatabase, ref, push, onValue, remove } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
 
-    // Firebase 配置信息
     const firebaseConfig = {
       apiKey: "AIzaSyBYRRAniavZymUH1TVzatwFV3XDWVRZpKg",
       authDomain: "visualization-c19e7.firebaseapp.com",
@@ -21,20 +19,15 @@
       projectId: "visualization-c19e7",
       storageBucket: "visualization-c19e7.appspot.com",
       messagingSenderId: "362993563679",
-      appId: "1:362993563679:web:dbcea418e07aa043277d2a",
-      measurementId: "G-SME8F2951F"
+      appId: "1:362993563679:web:dbcea418e07aa043277d2a"
     };
 
-    // 初始化 Firebase
     const app = initializeApp(firebaseConfig);
-    const analytics = getAnalytics(app);
     const db = getDatabase(app);
 
-    // 页面加载后执行主逻辑
     document.addEventListener("DOMContentLoaded", () => {
       const urlParams = new URLSearchParams(window.location.search);
       const mode = urlParams.get("mode");
-
       if (mode === "audience") {
         showAudienceView();
       } else {
@@ -44,90 +37,37 @@
       function showPresenterView() {
         document.getElementById("presenterView").style.display = "block";
         document.getElementById("audienceView").style.display = "none";
-        initializePresenter();
+        initPresenter();
       }
 
       function showAudienceView() {
         document.getElementById("presenterView").style.display = "none";
         document.getElementById("audienceView").style.display = "block";
-        initializeAudience();
+        initAudience();
       }
 
-      // 获取观众页面URL
       function getAudienceUrl() {
         const currentUrl = window.location.href.split("?")[0];
         return currentUrl + "?mode=audience";
       }
 
-      /** -------------------------
-       * 🎤 演讲者界面逻辑
-       * ------------------------ */
-      function initializePresenter() {
+      /** 演讲者界面逻辑 */
+      function initPresenter() {
+        const painRef = ref(db, "painPoints/");
         const wordcloudElement = document.getElementById("wordcloud");
         const responseList = document.getElementById("responseList");
-        const totalResponsesEl = document.getElementById("totalResponses");
-        const uniqueWordsEl = document.getElementById("uniqueWords");
-        const activeUsersEl = document.getElementById("activeUsers");
-        const pauseBtn = document.getElementById("pauseBtn");
-        const resetBtn = document.getElementById("resetBtn");
-        const refreshBtn = document.getElementById("refreshBtn");
         const shareUrlEl = document.getElementById("shareUrl");
-        const statusIndicator = document.getElementById("statusIndicator");
-        const statusText = document.getElementById("statusText");
+        const qrcodeDiv = document.getElementById("qrcode");
 
-        let isPaused = false;
-        let painPoints = [];
-
-        // 初始化二维码
         const audienceUrl = getAudienceUrl();
         shareUrlEl.textContent = audienceUrl;
-        new QRCode(document.getElementById("qrcode"), {
-          text: audienceUrl,
-          width: 200,
-          height: 200,
-          colorDark: "#000000",
-          colorLight: "#ffffff",
-          correctLevel: QRCode.CorrectLevel.H,
-        });
+        new QRCode(qrcodeDiv, { text: audienceUrl, width: 180, height: 180 });
 
-        // 从 Firebase 实时读取数据
-        const painRef = ref(db, "painPoints/");
         onValue(painRef, (snapshot) => {
-          if (isPaused) return;
           const data = snapshot.val();
-          painPoints = data ? Object.values(data).flat() : [];
-          updateWordCloud();
-          updateStats();
-          updateResponseList();
-        });
+          const painPoints = data ? Object.values(data).flat() : [];
 
-        // 暂停更新
-        pauseBtn.addEventListener("click", () => {
-          isPaused = !isPaused;
-          pauseBtn.textContent = isPaused ? "继续更新" : "暂停更新";
-          updateStatusIndicator();
-        });
-
-        // 重置数据库
-        resetBtn.addEventListener("click", () => {
-          if (confirm("确定要清空所有痛点数据吗？")) {
-            remove(painRef);
-          }
-        });
-
-        // 手动刷新
-        refreshBtn.addEventListener("click", () => {
-          onValue(painRef, (snapshot) => {
-            const data = snapshot.val();
-            painPoints = data ? Object.values(data).flat() : [];
-            updateWordCloud();
-            updateStats();
-            updateResponseList();
-          });
-        });
-
-        // 更新词云
-        function updateWordCloud() {
+          // 更新词云
           const wordFreq = {};
           painPoints.forEach((p) => {
             wordFreq[p] = (wordFreq[p] || 0) + 1;
@@ -135,119 +75,73 @@
           const wordList = Object.entries(wordFreq).map(([word, count]) => [word, count * 10]);
 
           wordcloudElement.innerHTML = "";
-          if (wordList.length === 0) {
-            wordcloudElement.innerHTML = "<p style='color:#666;'>暂无数据，等待观众提交...</p>";
-            return;
+          if (wordList.length > 0) {
+            WordCloud(wordcloudElement, { list: wordList });
+          } else {
+            wordcloudElement.innerHTML = "<p style='color:#888'>等待观众提交中...</p>";
           }
 
-          WordCloud(wordcloudElement, {
-            list: wordList,
-            gridSize: Math.round(16 * wordcloudElement.offsetWidth / 1024),
-            weightFactor: (size) => Math.pow(size, 2.2) * wordcloudElement.offsetWidth / 1024,
-            fontFamily: "Microsoft YaHei, sans-serif",
-            color: () => ["#FF6B6B", "#4ECDC4", "#FFD166", "#6A11CB", "#2575FC", "#FF9E7D"][Math.floor(Math.random() * 6)],
-            rotateRatio: 0.5,
-            rotationSteps: 2,
-            backgroundColor: "rgba(255,255,255,0.9)",
-          });
-        }
-
-        // 更新统计
-        function updateStats() {
-          totalResponsesEl.textContent = painPoints.length;
-          uniqueWordsEl.textContent = [...new Set(painPoints)].length;
-          activeUsersEl.textContent = Math.ceil(painPoints.length / 2);
-        }
-
-        // 更新提交列表
-        function updateResponseList() {
+          // 更新列表
           responseList.innerHTML = "";
-          const recent = painPoints.slice(-15).reverse();
-          recent.forEach((p) => {
+          painPoints.slice(-10).reverse().forEach((p) => {
             const li = document.createElement("li");
-            li.innerHTML = `<span>${p}</span><span class="response-time">${new Date().toLocaleTimeString()}</span>`;
+            li.textContent = p;
             responseList.appendChild(li);
           });
-        }
+        });
 
-        // 状态指示
-        function updateStatusIndicator() {
-          if (isPaused) {
-            statusIndicator.className = "status-indicator status-paused";
-            statusText.textContent = "更新已暂停";
-          } else {
-            statusIndicator.className = "status-indicator status-live";
-            statusText.textContent = "实时更新中...";
-          }
-        }
-
-        window.addEventListener("resize", updateWordCloud);
+        document.getElementById("resetBtn").addEventListener("click", () => {
+          if (confirm("确定要清空数据吗？")) remove(painRef);
+        });
       }
 
-      /** -------------------------
-       * 👥 观众界面逻辑
-       * ------------------------ */
-      function initializeAudience() {
-        const painPointInput = document.getElementById("painPoint");
+      /** 观众界面逻辑 */
+      function initAudience() {
+        const painInput = document.getElementById("painPoint");
         const submitBtn = document.getElementById("submitBtn");
-        const successMessage = document.getElementById("successMessage");
+        const successMsg = document.getElementById("successMessage");
 
         submitBtn.addEventListener("click", () => {
-          const text = painPointInput.value.trim();
-          if (!text) {
-            alert("请输入至少一个痛点！");
-            return;
-          }
-
-          const newPoints = text.split(/[,，]/).map((x) => x.trim()).filter(Boolean);
-          const painRef = ref(db, "painPoints/");
-          push(painRef, newPoints);
-
-          successMessage.style.display = "block";
-          painPointInput.value = "";
-          setTimeout(() => (successMessage.style.display = "none"), 3000);
+          const text = painInput.value.trim();
+          if (!text) return alert("请输入至少一个痛点");
+          const points = text.split(/[,，]/).map((x) => x.trim()).filter(Boolean);
+          push(ref(db, "painPoints/"), points);
+          successMsg.style.display = "block";
+          painInput.value = "";
+          setTimeout(() => (successMsg.style.display = "none"), 2000);
         });
       }
     });
   </script>
 
   <style>
-    /* 样式同你提供版本，这里略 */
+    body { font-family: "Microsoft YaHei"; background: #f4f7fb; margin: 0; padding: 20px; }
+    h1 { text-align: center; color: #333; }
+    #presenterView, #audienceView { display: none; }
+    #wordcloud { width: 100%; height: 400px; background: #fff; border-radius: 10px; }
+    #responseList li { background: #fff; margin: 4px 0; padding: 6px 10px; border-radius: 6px; }
+    button { padding: 8px 14px; margin: 6px; background: #2575FC; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+    button:hover { background: #1a5fd8; }
+    #successMessage { color: green; margin-top: 8px; display: none; }
   </style>
 </head>
-
 <body>
-  <!-- 🎤 演讲者界面 -->
-  <div id="presenterView" style="display:none; text-align:center; padding:20px;">
-    <h1>📊 PPT 痛点实时词云</h1>
-    <div id="statusIndicator" class="status-indicator status-live"></div>
-    <p id="statusText">实时更新中...</p>
-    <div id="wordcloud" style="width:90%; height:400px; margin:auto; border:1px solid #ccc;"></div>
-    <p>共收集 <span id="totalResponses">0</span> 条反馈，
-       唯一词条 <span id="uniqueWords">0</span> 个，
-       估计活跃用户 <span id="activeUsers">0</span> 人。
-    </p>
-    <div style="margin:10px;">
-      <button id="pauseBtn">暂停更新</button>
-      <button id="refreshBtn">手动刷新</button>
-      <button id="resetBtn" style="color:red;">清空数据</button>
-    </div>
-    <h3>🆕 最新提交</h3>
-    <ul id="responseList" style="list-style:none; text-align:left; max-width:600px; margin:auto; padding:0;"></ul>
-
-    <h3>📱 分享二维码</h3>
-    <div id="qrcode" style="margin:auto;"></div>
-    <p>观众访问链接：<span id="shareUrl" style="color:blue;"></span></p>
+  <!-- 🎤 主持人界面 -->
+  <div id="presenterView">
+    <h1>实时痛点反馈 - 演讲者端</h1>
+    <p>观众扫码或访问：<span id="shareUrl"></span></p>
+    <div id="qrcode"></div>
+    <div id="wordcloud"></div>
+    <ul id="responseList"></ul>
+    <button id="resetBtn">清空数据</button>
   </div>
 
   <!-- 👥 观众界面 -->
-  <div id="audienceView" style="display:none; text-align:center; padding:40px;">
-    <h1>🧠 PPT 痛点提交</h1>
-    <input type="text" id="painPoint" placeholder="请输入你的痛点，多个用逗号分隔" style="width:80%; padding:10px;">
-    <br><br>
-    <button id="submitBtn" style="padding:10px 20px;">提交</button>
-    <p id="successMessage" style="color:green; display:none;">✅ 提交成功，谢谢你的反馈！</p>
+  <div id="audienceView">
+    <h1>请填写你的痛点反馈</h1>
+    <input type="text" id="painPoint" placeholder="请输入你的痛点，例如：内容太抽象" style="width:80%;padding:10px;">
+    <button id="submitBtn">提交</button>
+    <p id="successMessage">提交成功，谢谢反馈！</p>
   </div>
 </body>
-
 </html>
