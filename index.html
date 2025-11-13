@@ -217,7 +217,37 @@
 </head>
 
 <body>
-  <!-- 保留原 HTML 结构 -->
-  <!-- ...你提供的 body 内容不变... -->
+  <!-- 🎤 演讲者界面 -->
+  <div id="presenterView" style="display:none; text-align:center; padding:20px;">
+    <h1>📊 PPT 痛点实时词云</h1>
+    <div id="statusIndicator" class="status-indicator status-live"></div>
+    <p id="statusText">实时更新中...</p>
+    <div id="wordcloud" style="width:90%; height:400px; margin:auto; border:1px solid #ccc;"></div>
+    <p>共收集 <span id="totalResponses">0</span> 条反馈，
+       唯一词条 <span id="uniqueWords">0</span> 个，
+       估计活跃用户 <span id="activeUsers">0</span> 人。
+    </p>
+    <div style="margin:10px;">
+      <button id="pauseBtn">暂停更新</button>
+      <button id="refreshBtn">手动刷新</button>
+      <button id="resetBtn" style="color:red;">清空数据</button>
+    </div>
+    <h3>🆕 最新提交</h3>
+    <ul id="responseList" style="list-style:none; text-align:left; max-width:600px; margin:auto; padding:0;"></ul>
+
+    <h3>📱 分享二维码</h3>
+    <div id="qrcode" style="margin:auto;"></div>
+    <p>观众访问链接：<span id="shareUrl" style="color:blue;"></span></p>
+  </div>
+
+  <!-- 👥 观众界面 -->
+  <div id="audienceView" style="display:none; text-align:center; padding:40px;">
+    <h1>🧠 PPT 痛点提交</h1>
+    <input type="text" id="painPoint" placeholder="请输入你的痛点，多个用逗号分隔" style="width:80%; padding:10px;">
+    <br><br>
+    <button id="submitBtn" style="padding:10px 20px;">提交</button>
+    <p id="successMessage" style="color:green; display:none;">✅ 提交成功，谢谢你的反馈！</p>
+  </div>
 </body>
+
 </html>
