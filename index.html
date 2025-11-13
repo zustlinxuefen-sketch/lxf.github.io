@@ -1,33 +1,40 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PPT痛点收集系统 - 实时版</title>
   <script src="https://cdn.jsdelivr.net/npm/wordcloud@1.2.2/src/wordcloud2.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-  
   <!-- Firebase SDK -->
   <script type="module">
+    // 导入 Firebase SDK
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
-    import { getDatabase, ref, push, onValue, remove } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+    import { getDatabase, ref, push, onValue, set, remove } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+    import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-analytics.js";
 
+    // Firebase 配置信息
     const firebaseConfig = {
       apiKey: "AIzaSyBYRRAniavZymUH1TVzatwFV3XDWVRZpKg",
       authDomain: "visualization-c19e7.firebaseapp.com",
       databaseURL: "https://visualization-c19e7-default-rtdb.asia-southeast1.firebasedatabase.app",
       projectId: "visualization-c19e7",
-      storageBucket: "visualization-c19e7.appspot.com",
+      storageBucket: "visualization-c19e7.firebasestorage.app",
       messagingSenderId: "362993563679",
-      appId: "1:362993563679:web:dbcea418e07aa043277d2a"
+      appId: "1:362993563679:web:dbcea418e07aa043277d2a",
+      measurementId: "G-SME8F2951F"
     };
 
+    // 初始化 Firebase
     const app = initializeApp(firebaseConfig);
+    const analytics = getAnalytics(app);
     const db = getDatabase(app);
 
+    // 页面加载后执行主逻辑
     document.addEventListener("DOMContentLoaded", () => {
       const urlParams = new URLSearchParams(window.location.search);
       const mode = urlParams.get("mode");
+
       if (mode === "audience") {
         showAudienceView();
       } else {
@@ -37,37 +44,113 @@
       function showPresenterView() {
         document.getElementById("presenterView").style.display = "block";
         document.getElementById("audienceView").style.display = "none";
-        initPresenter();
+        initializePresenter();
       }
 
       function showAudienceView() {
         document.getElementById("presenterView").style.display = "none";
         document.getElementById("audienceView").style.display = "block";
-        initAudience();
+        initializeAudience();
       }
 
+      // 获取观众页面URL
       function getAudienceUrl() {
         const currentUrl = window.location.href.split("?")[0];
         return currentUrl + "?mode=audience";
       }
 
-      /** 演讲者界面逻辑 */
-      function initPresenter() {
-        const painRef = ref(db, "painPoints/");
+      /** -------------------------
+       * 🎤 演讲者界面逻辑
+       * ------------------------ */
+      function initializePresenter() {
         const wordcloudElement = document.getElementById("wordcloud");
         const responseList = document.getElementById("responseList");
+        const totalResponsesEl = document.getElementById("totalResponses");
+        const uniqueWordsEl = document.getElementById("uniqueWords");
+        const activeUsersEl = document.getElementById("activeUsers");
+        const pauseBtn = document.getElementById("pauseBtn");
+        const resetBtn = document.getElementById("resetBtn");
+        const refreshBtn = document.getElementById("refreshBtn");
         const shareUrlEl = document.getElementById("shareUrl");
-        const qrcodeDiv = document.getElementById("qrcode");
+        const statusIndicator = document.getElementById("statusIndicator");
+        const statusText = document.getElementById("statusText");
 
+        let isPaused = false;
+        let painPoints = [];
+
+        // 初始化二维码
         const audienceUrl = getAudienceUrl();
         shareUrlEl.textContent = audienceUrl;
-        new QRCode(qrcodeDiv, { text: audienceUrl, width: 180, height: 180 });
+        new QRCode(document.getElementById("qrcode"), {
+          text: audienceUrl,
+          width: 200,
+          height: 200,
+          colorDark: "#000000",
+          colorLight: "#ffffff",
+          correctLevel: QRCode.CorrectLevel.H,
+        });
 
+        // 从 Firebase 实时读取数据
+        const painRef = ref(db, "painPoints/");
         onValue(painRef, (snapshot) => {
+          if (isPaused) return;
           const data = snapshot.val();
-          const painPoints = data ? Object.values(data).flat() : [];
+          console.log("Firebase 数据:", data); // 调试日志
+          
+          // 修复数据结构处理
+          painPoints = [];
+          if (data) {
+            Object.values(data).forEach(item => {
+              if (Array.isArray(item)) {
+                painPoints.push(...item);
+              } else {
+                painPoints.push(item);
+              }
+            });
+          }
+          
+          console.log("处理后的痛点数据:", painPoints); // 调试日志
+          updateWordCloud();
+          updateStats();
+          updateResponseList();
+        });
 
-          // 更新词云
+        // 暂停更新
+        pauseBtn.addEventListener("click", () => {
+          isPaused = !isPaused;
+          pauseBtn.textContent = isPaused ? "继续更新" : "暂停更新";
+          updateStatusIndicator();
+        });
+
+        // 重置数据库
+        resetBtn.addEventListener("click", () => {
+          if (confirm("确定要清空所有痛点数据吗？")) {
+            remove(painRef);
+          }
+        });
+
+        // 手动刷新
+        refreshBtn.addEventListener("click", () => {
+          onValue(painRef, (snapshot) => {
+            const data = snapshot.val();
+            painPoints = [];
+            if (data) {
+              Object.values(data).forEach(item => {
+                if (Array.isArray(item)) {
+                  painPoints.push(...item);
+                } else {
+                  painPoints.push(item);
+                }
+              });
+            }
+            updateWordCloud();
+            updateStats();
+            updateResponseList();
+          });
+        });
+
+        // 更新词云
+        function updateWordCloud() {
           const wordFreq = {};
           painPoints.forEach((p) => {
             wordFreq[p] = (wordFreq[p] || 0) + 1;
@@ -75,73 +158,470 @@
           const wordList = Object.entries(wordFreq).map(([word, count]) => [word, count * 10]);
 
           wordcloudElement.innerHTML = "";
-          if (wordList.length > 0) {
-            WordCloud(wordcloudElement, { list: wordList });
-          } else {
-            wordcloudElement.innerHTML = "<p style='color:#888'>等待观众提交中...</p>";
+          if (wordList.length === 0) {
+            wordcloudElement.innerHTML = "<p style='color:#666;'>暂无数据，等待观众提交...</p>";
+            return;
           }
 
-          // 更新列表
+          WordCloud(wordcloudElement, {
+            list: wordList,
+            gridSize: Math.round(16 * wordcloudElement.offsetWidth / 1024),
+            weightFactor: (size) => Math.pow(size, 2.2) * wordcloudElement.offsetWidth / 1024,
+            fontFamily: "Microsoft YaHei, sans-serif",
+            color: () => ["#FF6B6B", "#4ECDC4", "#FFD166", "#6A11CB", "#2575FC", "#FF9E7D"][Math.floor(Math.random() * 6)],
+            rotateRatio: 0.5,
+            rotationSteps: 2,
+            backgroundColor: "rgba(255,255,255,0.9)",
+          });
+        }
+
+        // 更新统计
+        function updateStats() {
+          totalResponsesEl.textContent = painPoints.length;
+          uniqueWordsEl.textContent = [...new Set(painPoints)].length;
+          activeUsersEl.textContent = Math.ceil(painPoints.length / 2);
+        }
+
+        // 更新提交列表
+        function updateResponseList() {
           responseList.innerHTML = "";
-          painPoints.slice(-10).reverse().forEach((p) => {
+          const recent = painPoints.slice(-15).reverse();
+          recent.forEach((p) => {
             const li = document.createElement("li");
-            li.textContent = p;
+            li.innerHTML = `<span>${p}</span><span class="response-time">${new Date().toLocaleTimeString()}</span>`;
             responseList.appendChild(li);
           });
-        });
+        }
 
-        document.getElementById("resetBtn").addEventListener("click", () => {
-          if (confirm("确定要清空数据吗？")) remove(painRef);
-        });
+        // 状态指示
+        function updateStatusIndicator() {
+          if (isPaused) {
+            statusIndicator.className = "status-indicator status-paused";
+            statusText.textContent = "更新已暂停";
+          } else {
+            statusIndicator.className = "status-indicator status-live";
+            statusText.textContent = "实时更新中...";
+          }
+        }
+
+        window.addEventListener("resize", updateWordCloud);
       }
 
-      /** 观众界面逻辑 */
-      function initAudience() {
-        const painInput = document.getElementById("painPoint");
+      /** -------------------------
+       * 👥 观众界面逻辑
+       * ------------------------ */
+      function initializeAudience() {
+        const painPointInput = document.getElementById("painPoint");
         const submitBtn = document.getElementById("submitBtn");
-        const successMsg = document.getElementById("successMessage");
+        const successMessage = document.getElementById("successMessage");
 
         submitBtn.addEventListener("click", () => {
-          const text = painInput.value.trim();
-          if (!text) return alert("请输入至少一个痛点");
-          const points = text.split(/[,，]/).map((x) => x.trim()).filter(Boolean);
-          push(ref(db, "painPoints/"), points);
-          successMsg.style.display = "block";
-          painInput.value = "";
-          setTimeout(() => (successMsg.style.display = "none"), 2000);
+          const text = painPointInput.value.trim();
+          if (!text) {
+            alert("请输入至少一个痛点！");
+            return;
+          }
+
+          const newPoints = text.split(/[,，]/).map((x) => x.trim()).filter(Boolean);
+          const painRef = ref(db, "painPoints/");
+          
+          // 添加时间戳以便追踪
+          const submission = {
+            points: newPoints,
+            timestamp: Date.now()
+          };
+          
+          push(painRef, newPoints);
+
+          successMessage.style.display = "block";
+          painPointInput.value = "";
+          setTimeout(() => (successMessage.style.display = "none"), 3000);
+        });
+        
+        // 支持按回车键提交
+        painPointInput.addEventListener("keypress", (e) => {
+          if (e.key === "Enter") {
+            submitBtn.click();
+          }
         });
       }
     });
   </script>
 
   <style>
-    body { font-family: "Microsoft YaHei"; background: #f4f7fb; margin: 0; padding: 20px; }
-    h1 { text-align: center; color: #333; }
-    #presenterView, #audienceView { display: none; }
-    #wordcloud { width: 100%; height: 400px; background: #fff; border-radius: 10px; }
-    #responseList li { background: #fff; margin: 4px 0; padding: 6px 10px; border-radius: 6px; }
-    button { padding: 8px 14px; margin: 6px; background: #2575FC; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
-    button:hover { background: #1a5fd8; }
-    #successMessage { color: green; margin-top: 8px; display: none; }
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+      min-height: 100vh;
+      color: #333;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    h1 {
+      font-size: 2.5rem;
+      margin-bottom: 10px;
+      color: #2c3e50;
+    }
+
+    .subtitle {
+      font-size: 1.2rem;
+      color: #7f8c8d;
+    }
+
+    .card {
+      background: white;
+      border-radius: 15px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+      padding: 25px;
+      margin-bottom: 25px;
+    }
+
+    .card h2 {
+      font-size: 1.5rem;
+      margin-bottom: 20px;
+      color: #2c3e50;
+      border-bottom: 2px solid #3498db;
+      padding-bottom: 10px;
+    }
+
+    /* 演讲者视图样式 */
+    #presenterView {
+      display: none;
+    }
+
+    .dashboard {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 25px;
+    }
+
+    .visualization-section {
+      grid-column: 1 / -1;
+    }
+
+    #wordcloud {
+      width: 100%;
+      height: 400px;
+      background: rgba(255, 255, 255, 0.9);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 2px dashed #bdc3c7;
+    }
+
+    .stats-container {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 15px;
+      margin-bottom: 25px;
+    }
+
+    .stat-card {
+      background: linear-gradient(135deg, #3498db, #2980b9);
+      color: white;
+      padding: 20px;
+      border-radius: 10px;
+      text-align: center;
+    }
+
+    .stat-number {
+      font-size: 2.5rem;
+      font-weight: bold;
+      margin: 10px 0;
+    }
+
+    .stat-label {
+      font-size: 0.9rem;
+      opacity: 0.9;
+    }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    button {
+      padding: 12px 20px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 1rem;
+      transition: all 0.3s ease;
+    }
+
+    .btn-primary {
+      background: #3498db;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #2980b9;
+    }
+
+    .btn-danger {
+      background: #e74c3c;
+      color: white;
+    }
+
+    .btn-danger:hover {
+      background: #c0392b;
+    }
+
+    .btn-success {
+      background: #2ecc71;
+      color: white;
+    }
+
+    .btn-success:hover {
+      background: #27ae60;
+    }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .status-indicator {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+
+    .status-live {
+      background: #2ecc71;
+      animation: pulse 2s infinite;
+    }
+
+    .status-paused {
+      background: #e74c3c;
+    }
+
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.5; }
+      100% { opacity: 1; }
+    }
+
+    .response-list {
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    .response-list ul {
+      list-style: none;
+    }
+
+    .response-list li {
+      padding: 12px 15px;
+      border-bottom: 1px solid #ecf0f1;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .response-list li:hover {
+      background: #f8f9fa;
+    }
+
+    .response-time {
+      font-size: 0.8rem;
+      color: #7f8c8d;
+    }
+
+    .share-section {
+      text-align: center;
+    }
+
+    #qrcode {
+      display: inline-block;
+      margin: 15px 0;
+      padding: 10px;
+      background: white;
+      border-radius: 10px;
+    }
+
+    .url-display {
+      background: #f8f9fa;
+      padding: 10px;
+      border-radius: 5px;
+      word-break: break-all;
+      margin: 15px 0;
+    }
+
+    /* 观众视图样式 */
+    #audienceView {
+      display: none;
+      max-width: 500px;
+      margin: 50px auto;
+    }
+
+    .audience-card {
+      text-align: center;
+    }
+
+    .input-group {
+      margin-bottom: 20px;
+    }
+
+    textarea {
+      width: 100%;
+      height: 120px;
+      padding: 15px;
+      border: 2px solid #bdc3c7;
+      border-radius: 10px;
+      font-size: 1rem;
+      resize: vertical;
+      font-family: "Microsoft YaHei", sans-serif;
+    }
+
+    textarea:focus {
+      outline: none;
+      border-color: #3498db;
+    }
+
+    .submit-btn {
+      width: 100%;
+      padding: 15px;
+      font-size: 1.1rem;
+    }
+
+    .success-message {
+      background: #d4edda;
+      color: #155724;
+      padding: 15px;
+      border-radius: 8px;
+      margin-top: 20px;
+      display: none;
+    }
+
+    /* 响应式设计 */
+    @media (max-width: 768px) {
+      .dashboard {
+        grid-template-columns: 1fr;
+      }
+      
+      .stats-container {
+        grid-template-columns: 1fr;
+      }
+      
+      h1 {
+        font-size: 2rem;
+      }
+    }
   </style>
 </head>
+
 <body>
-  <!-- 🎤 主持人界面 -->
+  <!-- 演讲者视图 -->
   <div id="presenterView">
-    <h1>实时痛点反馈 - 演讲者端</h1>
-    <p>观众扫码或访问：<span id="shareUrl"></span></p>
-    <div id="qrcode"></div>
-    <div id="wordcloud"></div>
-    <ul id="responseList"></ul>
-    <button id="resetBtn">清空数据</button>
+    <div class="container">
+      <header>
+        <h1>PPT痛点收集系统</h1>
+        <p class="subtitle">实时词云展示与互动反馈</p>
+      </header>
+
+      <div class="status-bar">
+        <div id="statusIndicator" class="status-indicator status-live"></div>
+        <span id="statusText">实时更新中...</span>
+      </div>
+
+      <div class="controls">
+        <button id="pauseBtn" class="btn-primary">暂停更新</button>
+        <button id="refreshBtn" class="btn-success">手动刷新</button>
+        <button id="resetBtn" class="btn-danger">重置数据</button>
+      </div>
+
+      <div class="stats-container">
+        <div class="stat-card">
+          <div class="stat-label">总提交数</div>
+          <div id="totalResponses" class="stat-number">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">独特词汇</div>
+          <div id="uniqueWords" class="stat-number">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">活跃用户</div>
+          <div id="activeUsers" class="stat-number">0</div>
+        </div>
+      </div>
+
+      <div class="dashboard">
+        <div class="card visualization-section">
+          <h2>实时痛点词云</h2>
+          <div id="wordcloud">
+            <p style="color:#666;">暂无数据，等待观众提交...</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>最新提交</h2>
+          <div class="response-list">
+            <ul id="responseList">
+              <!-- 实时提交列表 -->
+            </ul>
+          </div>
+        </div>
+
+        <div class="card share-section">
+          <h2>分享参与</h2>
+          <p>扫描二维码参与痛点提交</p>
+          <div id="qrcode"></div>
+          <div class="url-display">
+            <span id="shareUrl">加载中...</span>
+          </div>
+          <p style="color:#7f8c8d; font-size:0.9rem;">观众访问此链接即可提交痛点</p>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <!-- 👥 观众界面 -->
+  <!-- 观众视图 -->
   <div id="audienceView">
-    <h1>请填写你的痛点反馈</h1>
-    <input type="text" id="painPoint" placeholder="请输入你的痛点，例如：内容太抽象" style="width:80%;padding:10px;">
-    <button id="submitBtn">提交</button>
-    <p id="successMessage">提交成功，谢谢反馈！</p>
+    <div class="container">
+      <div class="card audience-card">
+        <h2>提交PPT制作痛点</h2>
+        <p style="margin-bottom:20px; color:#7f8c8d;">请分享您在PPT制作过程中遇到的痛点或问题</p>
+        
+        <div class="input-group">
+          <textarea 
+            id="painPoint" 
+            placeholder="例如：排版困难，配色不协调，动画效果复杂，找不到合适模板...
+多个痛点请用逗号分隔"
+          ></textarea>
+        </div>
+        
+        <button id="submitBtn" class="btn-primary submit-btn">提交痛点</button>
+        
+        <div id="successMessage" class="success-message">
+          提交成功！感谢您的参与。
+        </div>
+        
+        <div style="margin-top:30px; padding-top:20px; border-top:1px solid #ecf0f1;">
+          <p style="color:#7f8c8d; font-size:0.9rem;">您的提交将实时显示在主讲人的词云中</p>
+        </div>
+      </div>
+    </div>
   </div>
 </body>
 </html>
