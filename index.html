@@ -76,7 +76,7 @@
         const statusText = document.getElementById("statusText");
 
         let isPaused = false;
-        let painPoints = [];
+        let allPainPoints = []; // 存储所有痛点词条
 
         // 初始化二维码
         const audienceUrl = getAudienceUrl();
@@ -95,21 +95,27 @@
         onValue(painRef, (snapshot) => {
           if (isPaused) return;
           const data = snapshot.val();
-          console.log("Firebase 数据:", data); // 调试日志
+          console.log("Firebase 原始数据:", data);
           
-          // 修复数据结构处理
-          painPoints = [];
+          // 重新处理数据结构 - 收集所有词条
+          allPainPoints = [];
           if (data) {
             Object.values(data).forEach(item => {
               if (Array.isArray(item)) {
-                painPoints.push(...item);
-              } else {
-                painPoints.push(item);
+                // 如果是数组，添加所有元素
+                allPainPoints.push(...item);
+              } else if (typeof item === 'string') {
+                // 如果是字符串，直接添加
+                allPainPoints.push(item);
+              } else if (item && item.points) {
+                // 如果是对象且包含points字段
+                allPainPoints.push(...item.points);
               }
             });
           }
           
-          console.log("处理后的痛点数据:", painPoints); // 调试日志
+          console.log("所有痛点词条:", allPainPoints);
+          console.log("词条数量:", allPainPoints.length);
           updateWordCloud();
           updateStats();
           updateResponseList();
@@ -133,13 +139,15 @@
         refreshBtn.addEventListener("click", () => {
           onValue(painRef, (snapshot) => {
             const data = snapshot.val();
-            painPoints = [];
+            allPainPoints = [];
             if (data) {
               Object.values(data).forEach(item => {
                 if (Array.isArray(item)) {
-                  painPoints.push(...item);
-                } else {
-                  painPoints.push(item);
+                  allPainPoints.push(...item);
+                } else if (typeof item === 'string') {
+                  allPainPoints.push(item);
+                } else if (item && item.points) {
+                  allPainPoints.push(...item.points);
                 }
               });
             }
@@ -149,13 +157,25 @@
           });
         });
 
-        // 更新词云
+        // 更新词云 - 修复词频计算
         function updateWordCloud() {
+          // 计算每个词的出现频率
           const wordFreq = {};
-          painPoints.forEach((p) => {
-            wordFreq[p] = (wordFreq[p] || 0) + 1;
+          allPainPoints.forEach((word) => {
+            const cleanWord = word.trim();
+            if (cleanWord) {
+              wordFreq[cleanWord] = (wordFreq[cleanWord] || 0) + 1;
+            }
           });
-          const wordList = Object.entries(wordFreq).map(([word, count]) => [word, count * 10]);
+
+          console.log("词频统计:", wordFreq);
+
+          // 转换为词云需要的格式 [词, 权重]
+          const wordList = Object.entries(wordFreq).map(([word, count]) => [word, count]);
+
+          // 按频率排序（调试用）
+          wordList.sort((a, b) => b[1] - a[1]);
+          console.log("排序后的词列表:", wordList);
 
           wordcloudElement.innerHTML = "";
           if (wordList.length === 0) {
@@ -163,30 +183,43 @@
             return;
           }
 
+          // 生成词云
           WordCloud(wordcloudElement, {
             list: wordList,
             gridSize: Math.round(16 * wordcloudElement.offsetWidth / 1024),
-            weightFactor: (size) => Math.pow(size, 2.2) * wordcloudElement.offsetWidth / 1024,
+            weightFactor: function (size) {
+              // 根据频率调整大小 - 频率高的词更大
+              return size * 30;
+            },
             fontFamily: "Microsoft YaHei, sans-serif",
-            color: () => ["#FF6B6B", "#4ECDC4", "#FFD166", "#6A11CB", "#2575FC", "#FF9E7D"][Math.floor(Math.random() * 6)],
-            rotateRatio: 0.5,
+            color: () => ["#FF6B6B", "#4ECDC4", "#FFD166", "#6A11CB", "#2575FC", "#FF9E7D", "#32a852", "#ff4081"][Math.floor(Math.random() * 8)],
+            rotateRatio: 0.3, // 减少旋转比例，提高可读性
             rotationSteps: 2,
             backgroundColor: "rgba(255,255,255,0.9)",
+            minSize: 10, // 最小字体大小
+            drawOutOfBound: false,
+            shrinkToFit: true,
+            hover: function(item, dimension, event) {
+              if (!item) return;
+              console.log(`词: ${item[0]}, 频率: ${item[1]}`);
+            }
           });
         }
 
         // 更新统计
         function updateStats() {
-          totalResponsesEl.textContent = painPoints.length;
-          uniqueWordsEl.textContent = [...new Set(painPoints)].length;
-          activeUsersEl.textContent = Math.ceil(painPoints.length / 2);
+          totalResponsesEl.textContent = allPainPoints.length;
+          uniqueWordsEl.textContent = [...new Set(allPainPoints)].length;
+          activeUsersEl.textContent = Math.ceil(allPainPoints.length / 2);
         }
 
-        // 更新提交列表
+        // 更新提交列表 - 显示所有词条
         function updateResponseList() {
           responseList.innerHTML = "";
-          const recent = painPoints.slice(-15).reverse();
-          recent.forEach((p) => {
+          // 显示所有词条，最新的在前面
+          const displayList = [...allPainPoints].reverse();
+          
+          displayList.forEach((p, index) => {
             const li = document.createElement("li");
             li.innerHTML = `<span>${p}</span><span class="response-time">${new Date().toLocaleTimeString()}</span>`;
             responseList.appendChild(li);
@@ -225,12 +258,7 @@
           const newPoints = text.split(/[,，]/).map((x) => x.trim()).filter(Boolean);
           const painRef = ref(db, "painPoints/");
           
-          // 添加时间戳以便追踪
-          const submission = {
-            points: newPoints,
-            timestamp: Date.now()
-          };
-          
+          // 直接推送数组，确保数据结构一致
           push(painRef, newPoints);
 
           successMessage.style.display = "block";
@@ -317,13 +345,14 @@
 
     #wordcloud {
       width: 100%;
-      height: 400px;
+      height: 500px; /* 增加高度以显示更多词 */
       background: rgba(255, 255, 255, 0.9);
       border-radius: 10px;
       display: flex;
       align-items: center;
       justify-content: center;
       border: 2px dashed #bdc3c7;
+      overflow: hidden;
     }
 
     .stats-container {
@@ -423,7 +452,7 @@
     }
 
     .response-list {
-      max-height: 300px;
+      max-height: 400px;
       overflow-y: auto;
     }
 
@@ -527,6 +556,10 @@
       h1 {
         font-size: 2rem;
       }
+      
+      #wordcloud {
+        height: 300px;
+      }
     }
   </style>
 </head>
@@ -575,7 +608,7 @@
         </div>
 
         <div class="card">
-          <h2>最新提交</h2>
+          <h2>所有提交记录</h2>
           <div class="response-list">
             <ul id="responseList">
               <!-- 实时提交列表 -->
